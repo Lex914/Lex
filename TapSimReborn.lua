@@ -1,0 +1,782 @@
+--[[
+╔══════════════════════════════════════════════════════════╗
+║     TAP SIMULATOR REBORN — GENHUB SCRIPT v2.0          ║
+║     by 6larping7 — Delta / KRNL / Synapse / Fluxus     ║
+╠══════════════════════════════════════════════════════════╣
+║  ✅ Auto Tap x9929299292 (multi-thread)                 ║
+║  ✅ Auto Farm — Best Area                               ║
+║  ✅ Auto Rebirth                                        ║
+║  ✅ Auto Buy All Upgrades                               ║
+║  ✅ x8 Hatch (Best Egg, sürekli)                       ║
+║  ✅ Inf WalkSpeed / JumpPower                           ║
+║  ✅ Anti AFK                                            ║
+║  ✅ Coin / Gem ESP                                      ║
+║  ✅ Teleport Best Area                                  ║
+║  ✅ Anti-Detect (rate limit, random delay)              ║
+║  ✅ Full Draggable GUI (minimize, keybind RShift)       ║
+║  ✅ Stats bar (coins, rebirths live)                    ║
+╚══════════════════════════════════════════════════════════╝
+]]
+
+-- ── Services ──────────────────────────────────────────────────
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser       = game:GetService("VirtualUser")
+local StarterGui        = game:GetService("StarterGui")
+
+local lp   = Players.LocalPlayer
+local pg   = lp.PlayerGui
+local char = lp.Character or lp.CharacterAdded:Wait()
+local hum  = char:WaitForChild("Humanoid")
+local hrp  = char:WaitForChild("HumanoidRootPart")
+
+-- ── Config ────────────────────────────────────────────────────
+local CFG = {
+    AutoTap        = false,
+    AutoFarm       = false,
+    AutoRebirth    = false,
+    AutoUpgrade    = false,
+    AutoHatch      = false,
+    InfSpeed       = false,
+    InfJump        = false,
+    AntiAFK        = true,
+    CoinESP        = false,
+    TapDelay       = 0,
+    SpeedVal       = 100,
+    JumpVal        = 150,
+    HatchCount     = 8,
+    RebirthAt      = 500,
+    TapThreads     = 12,
+    AntiDetect     = true,
+    MenuKey        = Enum.KeyCode.RightShift,
+}
+
+-- ── Utility ───────────────────────────────────────────────────
+local function notify(txt)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title    = "⬡ Genhub",
+            Text     = txt,
+            Duration = 2,
+        })
+    end)
+end
+
+local function safe(fn, ...)
+    local ok, e = pcall(fn, ...)
+    if not ok then end
+end
+
+local function rdelay()
+    -- anti-detect: rastgele mikro delay
+    if CFG.AntiDetect then
+        task.wait(math.random(1, 5) * 0.001)
+    end
+end
+
+local function findRemote(...)
+    local names = {...}
+    local function search(p)
+        if not p then return nil end
+        for _, n in pairs(names) do
+            local r = p:FindFirstChild(n, true)
+            if r then return r end
+        end
+    end
+    return search(ReplicatedStorage)
+        or search(workspace)
+end
+
+local function getLeaderstat(...)
+    for _, name in pairs({...}) do
+        local ls = lp:FindFirstChild("leaderstats")
+        if ls then
+            local v = ls:FindFirstChild(name)
+            if v then return tonumber(v.Value) or 0 end
+        end
+        for _, obj in pairs(lp:GetChildren()) do
+            local v = obj:FindFirstChild(name)
+            if v and (v:IsA("NumberValue") or v:IsA("IntValue")) then
+                return tonumber(v.Value) or 0
+            end
+        end
+    end
+    return 0
+end
+
+local function getCoins()
+    return getLeaderstat("Coins","Cash","Taps","Gems","Points","Tokens")
+end
+
+local function getRebirths()
+    return getLeaderstat("Rebirths","Prestige","Reborn","Stages")
+end
+
+-- ── Character refresh ─────────────────────────────────────────
+lp.CharacterAdded:Connect(function(c)
+    char = c
+    hum  = c:WaitForChild("Humanoid")
+    hrp  = c:WaitForChild("HumanoidRootPart")
+end)
+
+-- ── Loop manager ──────────────────────────────────────────────
+local loops = {}
+
+local function startLoop(name, fn, delay)
+    if loops[name] then return end
+    loops[name] = true
+    task.spawn(function()
+        while loops[name] and CFG[name] do
+            safe(fn)
+            task.wait(delay or 0)
+        end
+        loops[name] = nil
+    end)
+end
+
+local function stopLoop(name) loops[name] = nil end
+
+-- ── Remotes ───────────────────────────────────────────────────
+local tapRemote      = findRemote("Tap","TapEvent","OnTap","Click","TapBrick","TouchTap","TapRemote")
+local rebirthRemote  = findRemote("Rebirth","Prestige","RebirthEvent","DoRebirth","RebirthRemote")
+local upgradeRemote  = findRemote("BuyUpgrade","Upgrade","Purchase","BuyItem","UpgradeRemote")
+local hatchRemote    = findRemote("Hatch","HatchEgg","BuyEgg","OpenEgg","EggHatch","HatchRemote")
+
+-- ── 1. MEGA TAP (x9929299292) ─────────────────────────────────
+-- Paralel coroutine'ler + her türlü tap yöntemi
+
+local function fireTap()
+    rdelay()
+    -- Remote
+    if tapRemote then
+        if tapRemote:IsA("RemoteEvent") then
+            tapRemote:FireServer()
+        elseif tapRemote:IsA("RemoteFunction") then
+            pcall(function() tapRemote:InvokeServer() end)
+        end
+    end
+    -- Tüm RemoteEvent'leri tara
+    for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") then
+            local n = obj.Name:lower()
+            if n:find("tap") or n:find("click") or n:find("hit")
+            or n:find("touch") or n:find("earn") or n:find("collect") then
+                safe(function() obj:FireServer() end)
+            end
+        end
+        if obj:IsA("RemoteFunction") then
+            local n = obj.Name:lower()
+            if n:find("tap") or n:find("click") then
+                safe(function() obj:InvokeServer() end)
+            end
+        end
+    end
+    -- ClickDetector + ProximityPrompt
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("ClickDetector") then
+            safe(fireClickDetector, obj)
+        end
+        if obj:IsA("ProximityPrompt") then
+            safe(fireproximityprompt, obj)
+        end
+    end
+    -- UI butonlar
+    for _, btn in pairs(pg:GetDescendants()) do
+        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+            local n = btn.Name:lower()
+            if n:find("tap") or n:find("click") or n:find("hit") or n:find("touch") then
+                safe(function() btn.MouseButton1Click:Fire() end)
+            end
+        end
+    end
+end
+
+local tapThreadHandles = {}
+
+local function startMegaTap()
+    -- CFG.TapThreads adet paralel thread başlat
+    for i = 1, CFG.TapThreads do
+        local t = task.spawn(function()
+            while CFG.AutoTap do
+                fireTap()
+                task.wait(CFG.TapDelay)
+            end
+        end)
+        table.insert(tapThreadHandles, t)
+    end
+end
+
+local function stopMegaTap()
+    CFG.AutoTap = false
+    tapThreadHandles = {}
+end
+
+-- ── 2. AUTO FARM ──────────────────────────────────────────────
+local function getBestArea()
+    local containers = {"Areas","Zones","Worlds","Islands","Map","Stages","Regions"}
+    for _, name in pairs(containers) do
+        local c = workspace:FindFirstChild(name)
+        if c then
+            local best, bestN = nil, -1
+            for _, a in pairs(c:GetChildren()) do
+                local n = tonumber(a.Name:match("%d+")) or 0
+                if n > bestN then bestN = n; best = a end
+            end
+            if best then return best end
+        end
+    end
+end
+
+local function doFarm()
+    local area = getBestArea()
+    if area then
+        local part = area:FindFirstChildWhichIsA("BasePart")
+        if part and hrp then
+            hrp.CFrame = CFrame.new(part.Position + Vector3.new(0, 5, 0))
+        end
+    end
+    fireTap()
+end
+
+-- ── 3. AUTO REBIRTH ───────────────────────────────────────────
+local function doRebirth()
+    if getCoins() < CFG.RebirthAt then return end
+    rdelay()
+    if rebirthRemote then
+        if rebirthRemote:IsA("RemoteEvent") then
+            rebirthRemote:FireServer()
+        else
+            pcall(function() rebirthRemote:InvokeServer() end)
+        end
+    end
+    for _, btn in pairs(pg:GetDescendants()) do
+        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+            if btn.Name:lower():find("rebirth") or btn.Name:lower():find("prestige") then
+                safe(function() btn.MouseButton1Click:Fire() end)
+            end
+        end
+    end
+    notify("🔁 Rebirth! x" .. tostring(getRebirths()))
+end
+
+-- ── 4. AUTO UPGRADE ───────────────────────────────────────────
+local function doUpgrade()
+    rdelay()
+    if upgradeRemote then
+        for i = 1, 30 do
+            safe(function()
+                if upgradeRemote:IsA("RemoteEvent") then
+                    upgradeRemote:FireServer(i)
+                else
+                    upgradeRemote:InvokeServer(i)
+                end
+            end)
+        end
+    end
+    for _, btn in pairs(pg:GetDescendants()) do
+        if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+            local n = btn.Name:lower()
+            if n:find("buy") or n:find("upgrade") or n:find("max") or n:find("purchase") then
+                safe(function() btn.MouseButton1Click:Fire() end)
+            end
+        end
+    end
+end
+
+-- ── 5. AUTO HATCH x8 ──────────────────────────────────────────
+local function getBestEgg()
+    local best, bestN = nil, -1
+    for _, obj in pairs(workspace:GetDescendants()) do
+        local n = obj.Name:lower()
+        if n:find("egg") then
+            local num = tonumber(obj.Name:match("%d+")) or 0
+            if num > bestN then bestN = num; best = obj end
+        end
+    end
+    return best
+end
+
+local function doHatch()
+    local egg     = getBestEgg()
+    local eggName = egg and egg.Name or "Best"
+    rdelay()
+
+    for i = 1, CFG.HatchCount do
+        -- Remote
+        if hatchRemote then
+            safe(function()
+                if hatchRemote:IsA("RemoteEvent") then
+                    hatchRemote:FireServer(eggName, 1)
+                else
+                    hatchRemote:InvokeServer(eggName, 1)
+                end
+            end)
+        end
+        -- Tüm hatch remote'ları tara
+        for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
+            if obj:IsA("RemoteEvent") then
+                local n = obj.Name:lower()
+                if n:find("hatch") or n:find("egg") or n:find("open") then
+                    safe(function() obj:FireServer(eggName, 1) end)
+                end
+            end
+        end
+        -- Egg objesi üzerindeki detector'lar
+        if egg then
+            for _, d in pairs(egg:GetDescendants()) do
+                if d:IsA("ClickDetector") then safe(fireClickDetector, d) end
+                if d:IsA("ProximityPrompt") then safe(fireproximityprompt, d) end
+            end
+        end
+        -- UI butonlar
+        for _, btn in pairs(pg:GetDescendants()) do
+            if btn:IsA("TextButton") or btn:IsA("ImageButton") then
+                local n = btn.Name:lower()
+                if n:find("hatch") or n:find("open") or n:find("x8") or n:find("x10") then
+                    safe(function() btn.MouseButton1Click:Fire() end)
+                end
+            end
+        end
+        task.wait(0.02)
+    end
+end
+
+-- ── 6. INF SPEED / JUMP ───────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    if not hum then return end
+    if CFG.InfSpeed then hum.WalkSpeed = CFG.SpeedVal end
+    if CFG.InfJump  then hum.JumpPower = CFG.JumpVal  end
+end)
+
+-- ── 7. ANTI AFK ───────────────────────────────────────────────
+lp.Idled:Connect(function()
+    if not CFG.AntiAFK then return end
+    VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    task.wait(0.1)
+    VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+end)
+
+-- ── 8. COIN / GEM ESP ─────────────────────────────────────────
+local espBoards = {}
+
+local function clearESP()
+    for _, b in pairs(espBoards) do pcall(function() b:Destroy() end) end
+    espBoards = {}
+end
+
+local function addESP(part, label)
+    if not part or not part.Parent then return end
+    local bb   = Instance.new("BillboardGui")
+    bb.Size           = UDim2.new(0, 90, 0, 28)
+    bb.AlwaysOnTop    = true
+    bb.StudsOffset    = Vector3.new(0, 3, 0)
+    bb.Adornee        = part
+    bb.Parent         = part
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size              = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundColor3  = Color3.fromRGB(0, 0, 0)
+    lbl.BackgroundTransparency = 0.35
+    lbl.TextColor3        = Color3.fromRGB(255, 215, 0)
+    lbl.Text              = "💰 " .. label
+    lbl.TextScaled        = true
+    lbl.Font              = Enum.Font.GothamBold
+    lbl.Parent            = bb
+    Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 4)
+
+    table.insert(espBoards, bb)
+end
+
+local function refreshESP()
+    clearESP()
+    if not CFG.CoinESP then return end
+    for _, obj in pairs(workspace:GetDescendants()) do
+        local n = obj.Name:lower()
+        if n:find("coin") or n:find("gem") or n:find("drop")
+        or n:find("reward") or n:find("pickup") or n:find("cash") then
+            local part = obj:IsA("BasePart") and obj
+                or obj:FindFirstChildWhichIsA("BasePart")
+            if part then addESP(part, obj.Name) end
+        end
+    end
+end
+
+-- ESP auto-refresh
+task.spawn(function()
+    while true do
+        if CFG.CoinESP then refreshESP() end
+        task.wait(3)
+    end
+end)
+
+-- ── TOGGLE helper ─────────────────────────────────────────────
+local function toggle(key, loopFn, delay)
+    CFG[key] = not CFG[key]
+    if key == "AutoTap" then
+        if CFG[key] then startMegaTap() else stopMegaTap() end
+    elseif loopFn then
+        if CFG[key] then startLoop(key, loopFn, delay) else stopLoop(key) end
+    end
+    if key == "CoinESP" then
+        if CFG[key] then refreshESP() else clearESP() end
+    end
+    return CFG[key]
+end
+
+-- ════════════════════════════════════════════════════════════
+-- GUI
+-- ════════════════════════════════════════════════════════════
+local old = pg:FindFirstChild("GenhubGui")
+if old then old:Destroy() end
+
+local SG = Instance.new("ScreenGui")
+SG.Name            = "GenhubGui"
+SG.ResetOnSpawn    = false
+SG.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+SG.IgnoreGuiInset  = true
+SG.Parent          = pg
+
+-- Ana frame
+local Main = Instance.new("Frame")
+Main.Name              = "Main"
+Main.Size              = UDim2.new(0, 285, 0, 480)
+Main.Position          = UDim2.new(0, 16, 0, 60)
+Main.BackgroundColor3  = Color3.fromRGB(10, 10, 18)
+Main.BorderSizePixel   = 0
+Main.ClipsDescendants  = true
+Main.Parent            = SG
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color     = Color3.fromRGB(0, 110, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Parent    = Main
+
+-- Title bar
+local TB = Instance.new("Frame")
+TB.Name            = "TitleBar"
+TB.Size            = UDim2.new(1, 0, 0, 40)
+TB.BackgroundColor3= Color3.fromRGB(8, 8, 18)
+TB.BorderSizePixel = 0
+TB.Parent          = Main
+Instance.new("UICorner", TB).CornerRadius = UDim.new(0, 10)
+
+local grad = Instance.new("UIGradient")
+grad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 80, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 200, 100)),
+})
+grad.Rotation = 90
+grad.Parent   = TB
+
+local TitleLbl = Instance.new("TextLabel")
+TitleLbl.Size                 = UDim2.new(1, -44, 1, 0)
+TitleLbl.Position             = UDim2.new(0, 12, 0, 0)
+TitleLbl.BackgroundTransparency = 1
+TitleLbl.Text                 = "⬡ GENHUB  |  Tap Sim Reborn"
+TitleLbl.TextColor3           = Color3.fromRGB(255, 255, 255)
+TitleLbl.TextSize             = 13
+TitleLbl.Font                 = Enum.Font.GothamBold
+TitleLbl.TextXAlignment       = Enum.TextXAlignment.Left
+TitleLbl.Parent               = TB
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size              = UDim2.new(0, 28, 0, 22)
+MinBtn.Position          = UDim2.new(1, -34, 0, 9)
+MinBtn.BackgroundColor3  = Color3.fromRGB(28, 28, 48)
+MinBtn.Text              = "–"
+MinBtn.TextColor3        = Color3.fromRGB(200, 200, 200)
+MinBtn.TextSize          = 16
+MinBtn.Font              = Enum.Font.GothamBold
+MinBtn.BorderSizePixel   = 0
+MinBtn.Parent            = TB
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 5)
+
+-- Scroll content
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size                = UDim2.new(1, -8, 1, -72)
+Scroll.Position            = UDim2.new(0, 4, 0, 44)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel     = 0
+Scroll.ScrollBarThickness  = 3
+Scroll.ScrollBarImageColor3= Color3.fromRGB(0, 120, 255)
+Scroll.CanvasSize          = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent              = Main
+
+local ULL = Instance.new("UIListLayout")
+ULL.Padding    = UDim.new(0, 5)
+ULL.SortOrder  = Enum.SortOrder.LayoutOrder
+ULL.Parent     = Scroll
+
+local UPad = Instance.new("UIPadding")
+UPad.PaddingTop   = UDim.new(0, 5)
+UPad.PaddingLeft  = UDim.new(0, 5)
+UPad.PaddingRight = UDim.new(0, 5)
+UPad.Parent       = Scroll
+
+-- Stats bar
+local SBar = Instance.new("Frame")
+SBar.Size              = UDim2.new(1, 0, 0, 28)
+SBar.Position          = UDim2.new(0, 0, 1, -32)
+SBar.BackgroundColor3  = Color3.fromRGB(6, 6, 14)
+SBar.BorderSizePixel   = 0
+SBar.ZIndex            = 5
+SBar.Parent            = Main
+
+local SLbl = Instance.new("TextLabel")
+SLbl.Size                  = UDim2.new(1, 0, 1, 0)
+SLbl.BackgroundTransparency = 1
+SLbl.Text                  = "💰 0   |   🔁 0   |   RShift = Menü"
+SLbl.TextColor3            = Color3.fromRGB(90, 110, 150)
+SLbl.TextSize              = 11
+SLbl.Font                  = Enum.Font.Gotham
+SLbl.ZIndex                = 6
+SLbl.Parent                = SBar
+
+task.spawn(function()
+    while task.wait(1) do
+        safe(function()
+            SLbl.Text = string.format(
+                "💰 %d   |   🔁 %d   |   RShift = Menü",
+                getCoins(), getRebirths()
+            )
+        end)
+    end
+end)
+
+-- ── GUI helpers ───────────────────────────────────────────────
+local order = 0
+local function nextOrder() order = order + 1; return order end
+
+local function makeSection(label)
+    local f = Instance.new("Frame")
+    f.Size              = UDim2.new(1, 0, 0, 22)
+    f.BackgroundColor3  = Color3.fromRGB(0, 90, 220)
+    f.BackgroundTransparency = 0.72
+    f.BorderSizePixel   = 0
+    f.LayoutOrder       = nextOrder()
+    f.Parent            = Scroll
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 5)
+
+    local l = Instance.new("TextLabel")
+    l.Size                  = UDim2.new(1, 0, 1, 0)
+    l.BackgroundTransparency = 1
+    l.Text                  = "  " .. label:upper()
+    l.TextColor3            = Color3.fromRGB(130, 185, 255)
+    l.TextSize              = 11
+    l.Font                  = Enum.Font.GothamBold
+    l.TextXAlignment        = Enum.TextXAlignment.Left
+    l.Parent                = f
+end
+
+local function makeToggle(label, cfgKey, loopFn, delay)
+    local row = Instance.new("Frame")
+    row.Size              = UDim2.new(1, 0, 0, 36)
+    row.BackgroundColor3  = Color3.fromRGB(16, 16, 28)
+    row.BorderSizePixel   = 0
+    row.LayoutOrder       = nextOrder()
+    row.Parent            = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                  = UDim2.new(1, -54, 1, 0)
+    lbl.Position              = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                  = label
+    lbl.TextColor3            = Color3.fromRGB(190, 190, 205)
+    lbl.TextSize              = 13
+    lbl.Font                  = Enum.Font.Gotham
+    lbl.TextXAlignment        = Enum.TextXAlignment.Left
+    lbl.Parent                = row
+
+    local sw = Instance.new("Frame")
+    sw.Size              = UDim2.new(0, 44, 0, 22)
+    sw.Position          = UDim2.new(1, -50, 0.5, -11)
+    sw.BackgroundColor3  = Color3.fromRGB(38, 38, 58)
+    sw.BorderSizePixel   = 0
+    sw.Parent            = row
+    Instance.new("UICorner", sw).CornerRadius = UDim.new(1, 0)
+
+    local knob = Instance.new("Frame")
+    knob.Size              = UDim2.new(0, 18, 0, 18)
+    knob.Position          = UDim2.new(0, 2, 0.5, -9)
+    knob.BackgroundColor3  = Color3.fromRGB(110, 110, 135)
+    knob.BorderSizePixel   = 0
+    knob.Parent            = sw
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local function updateVisual(on)
+        local ti = TweenInfo.new(0.15)
+        TweenService:Create(sw, ti, {
+            BackgroundColor3 = on
+                and Color3.fromRGB(0, 175, 80)
+                or  Color3.fromRGB(38, 38, 58)
+        }):Play()
+        TweenService:Create(knob, ti, {
+            Position = on
+                and UDim2.new(1, -20, 0.5, -9)
+                or  UDim2.new(0, 2,   0.5, -9),
+            BackgroundColor3 = on
+                and Color3.fromRGB(255, 255, 255)
+                or  Color3.fromRGB(110, 110, 135),
+        }):Play()
+        lbl.TextColor3 = on
+            and Color3.fromRGB(255, 255, 255)
+            or  Color3.fromRGB(190, 190, 205)
+    end
+
+    updateVisual(CFG[cfgKey])
+
+    local hitbox = Instance.new("TextButton")
+    hitbox.Size                 = UDim2.new(1, 0, 1, 0)
+    hitbox.BackgroundTransparency = 1
+    hitbox.Text                 = ""
+    hitbox.Parent               = row
+
+    hitbox.MouseButton1Click:Connect(function()
+        local on = toggle(cfgKey, loopFn, delay)
+        updateVisual(on)
+        notify(label .. (on and " AÇIK ✅" or " KAPALI ❌"))
+    end)
+end
+
+local function makeSlider(label, cfgKey, min, max)
+    local row = Instance.new("Frame")
+    row.Size              = UDim2.new(1, 0, 0, 50)
+    row.BackgroundColor3  = Color3.fromRGB(16, 16, 28)
+    row.BorderSizePixel   = 0
+    row.LayoutOrder       = nextOrder()
+    row.Parent            = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                  = UDim2.new(1, 0, 0, 22)
+    lbl.Position              = UDim2.new(0, 12, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                  = label .. ": " .. tostring(CFG[cfgKey])
+    lbl.TextColor3            = Color3.fromRGB(170, 170, 195)
+    lbl.TextSize              = 12
+    lbl.Font                  = Enum.Font.Gotham
+    lbl.TextXAlignment        = Enum.TextXAlignment.Left
+    lbl.Parent                = row
+
+    local track = Instance.new("Frame")
+    track.Size              = UDim2.new(1, -24, 0, 6)
+    track.Position          = UDim2.new(0, 12, 1, -16)
+    track.BackgroundColor3  = Color3.fromRGB(32, 32, 52)
+    track.BorderSizePixel   = 0
+    track.Parent            = row
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local fill = Instance.new("Frame")
+    local pct0 = (CFG[cfgKey] - min) / (max - min)
+    fill.Size              = UDim2.new(math.clamp(pct0, 0, 1), 0, 1, 0)
+    fill.BackgroundColor3  = Color3.fromRGB(0, 130, 255)
+    fill.BorderSizePixel   = 0
+    fill.Parent            = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local dragging = false
+    track.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if not dragging then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return end
+        local rel = math.clamp(
+            (inp.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local val = math.floor(min + (max - min) * rel)
+        CFG[cfgKey]   = val
+        fill.Size     = UDim2.new(rel, 0, 1, 0)
+        lbl.Text      = label .. ": " .. tostring(val)
+    end)
+end
+
+-- ── Build layout ──────────────────────────────────────────────
+makeSection("⚡ Tap & Farm")
+makeToggle("Auto Tap  (x" .. CFG.TapThreads .. " thread)", "AutoTap",    nil,        0)
+makeToggle("Auto Farm (Best Area)",                         "AutoFarm",   doFarm,     0.05)
+makeToggle("Auto Rebirth",                                  "AutoRebirth",doRebirth,  0.5)
+makeToggle("Auto Buy Upgrade",                              "AutoUpgrade",doUpgrade,  1)
+
+makeSection("🥚 Hatch")
+makeToggle("Auto Hatch x" .. CFG.HatchCount .. " (Best Egg)", "AutoHatch", doHatch, 0.1)
+makeSlider("Hatch Count",  "HatchCount",  1,   20)
+
+makeSection("🏃 Player")
+makeToggle("Inf Speed",   "InfSpeed",  nil, nil)
+makeToggle("Inf Jump",    "InfJump",   nil, nil)
+makeToggle("Anti AFK",    "AntiAFK",   nil, nil)
+makeToggle("Anti-Detect (delay randomize)", "AntiDetect", nil, nil)
+makeSlider("Speed Value", "SpeedVal",  16,  500)
+makeSlider("Jump Value",  "JumpVal",   50,  500)
+
+makeSection("👁 ESP")
+makeToggle("Coin / Gem ESP", "CoinESP", nil, nil)
+
+makeSection("⚙ Settings")
+makeSlider("Rebirth At (coins)", "RebirthAt", 100, 10000)
+makeSlider("Tap Threads",        "TapThreads", 1,   32)
+
+-- ── Drag ──────────────────────────────────────────────────────
+do
+    local drag, ds, sp = false, nil, nil
+    TB.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            drag = true; ds = inp.Position; sp = Main.Position
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1
+        or inp.UserInputType == Enum.UserInputType.Touch then
+            drag = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if not drag then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseMovement
+        and inp.UserInputType ~= Enum.UserInputType.Touch then return end
+        local d = inp.Position - ds
+        Main.Position = UDim2.new(
+            sp.X.Scale, sp.X.Offset + d.X,
+            sp.Y.Scale, sp.Y.Offset + d.Y)
+    end)
+end
+
+-- ── Minimize ──────────────────────────────────────────────────
+local minimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    TweenService:Create(Main, TweenInfo.new(0.18), {
+        Size = minimized
+            and UDim2.new(0, 285, 0, 40)
+            or  UDim2.new(0, 285, 0, 480)
+    }):Play()
+    MinBtn.Text = minimized and "▢" or "–"
+end)
+
+-- ── Keybind (RShift) ──────────────────────────────────────────
+UserInputService.InputBegan:Connect(function(inp, gp)
+    if gp then return end
+    if inp.KeyCode == CFG.MenuKey then
+        Main.Visible = not Main.Visible
+    end
+end)
+
+-- ── Done ──────────────────────────────────────────────────────
+notify("⬡ Genhub v2.0 yüklendi! RShift = Menü")
